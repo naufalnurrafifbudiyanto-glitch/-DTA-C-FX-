@@ -40,8 +40,8 @@ jobs:
 
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          echo "SDK: $ANDROID_HOME"
-          echo "SDKMANAGER: $SDKMANAGER"
+          echo "Android SDK: $ANDROID_HOME"
+          echo "SDK Manager: $SDKMANAGER"
 
           "$SDKMANAGER" --version
 
@@ -50,7 +50,9 @@ jobs:
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
-            "build-tools;35.0.0"
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
       - name: Build Debug APK
         run: |
