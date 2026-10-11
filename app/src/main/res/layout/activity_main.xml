@@ -21,7 +21,7 @@
             android:textSize="28sp"
             android:textStyle="bold"
             android:gravity="center"
-            android:paddingBottom="4dp"/>
+            android:paddingBottom="3dp"/>
 
         <TextView
             android:layout_width="match_parent"
@@ -30,7 +30,7 @@
             android:textColor="#777D86"
             android:textSize="11sp"
             android:gravity="center"
-            android:paddingBottom="14dp"/>
+            android:paddingBottom="12dp"/>
 
         <TextView
             android:id="@+id/txtSource"
@@ -43,7 +43,7 @@
             android:gravity="center"
             android:padding="8dp"/>
 
-        <com.dtac.fx.MainActivity$SpectrumView
+        <com.dtac.fx.SpectrumView
             android:id="@+id/spectrumView"
             android:layout_width="match_parent"
             android:layout_height="170dp"
