@@ -2,6 +2,7 @@ package com.dtac.fx;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
@@ -22,16 +23,25 @@ import android.widget.TextView;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 public class MainActivity extends Activity {
 
+    private static boolean nativeLoaded = false;
+
     static {
-        System.loadLibrary("dtac_fx");
+        try {
+            System.loadLibrary("dtac_fx");
+            nativeLoaded = true;
+        } catch (UnsatisfiedLinkError e) {
+            nativeLoaded = false;
+        }
     }
 
     private static final int SAMPLE_RATE = 48000;
     private static final int CHANNELS = 2;
     private static final int FRAMES = 512;
+
     private static final int PERMISSION_REQUEST = 100;
     private static final int PLAYER_REQUEST = 200;
 
@@ -41,7 +51,7 @@ public class MainActivity extends Activity {
     private Thread audioThread;
     private volatile boolean running = false;
 
-    private int source = 0; // 0 = MIC, 1 = PLAYER
+    private volatile int source = 0;
 
     private Button micButton;
     private Button playerButton;
@@ -61,27 +71,46 @@ public class MainActivity extends Activity {
 
     private SpectrumView spectrumView;
 
+    private boolean bypass = false;
+    private boolean mute = false;
+
     private final Handler handler =
             new Handler(Looper.getMainLooper());
 
-    private final Runnable spectrumRunnable = new Runnable() {
-        @Override
-        public void run() {
+    private final Runnable spectrumRunnable =
+            new Runnable() {
+                @Override
+                public void run() {
 
-            if (!running)
-                return;
+                    if (!running)
+                        return;
 
-            float[] spectrum = nativeGetSpectrum();
+                    if (nativeLoaded && spectrumView != null) {
 
-            if (spectrum != null && spectrumView != null) {
-                spectrumView.setSpectrum(spectrum);
-            }
+                        try {
+                            float[] spectrum =
+                                    nativeGetSpectrum();
 
-            handler.postDelayed(this, 50);
-        }
-    };
+                            if (spectrum != null) {
+                                spectrumView.setSpectrum(
+                                        spectrum
+                                );
+                            }
 
-    private native boolean nativeInit(int sampleRate);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
+                    handler.postDelayed(
+                            this,
+                            50
+                    );
+                }
+            };
+
+    private native boolean nativeInit(
+            int sampleRate
+    );
 
     private native void nativeRelease();
 
@@ -91,17 +120,29 @@ public class MainActivity extends Activity {
             int frames
     );
 
-    private native void nativeSetDelay(float value);
+    private native void nativeSetDelay(
+            float value
+    );
 
-    private native void nativeSetEcho(float value);
+    private native void nativeSetEcho(
+            float value
+    );
 
-    private native void nativeSetChorus(float value);
+    private native void nativeSetChorus(
+            float value
+    );
 
-    private native void nativeSetReverb(float value);
+    private native void nativeSetReverb(
+            float value
+    );
 
-    private native void nativeSetBypass(boolean value);
+    private native void nativeSetBypass(
+            boolean value
+    );
 
-    private native void nativeSetMute(boolean value);
+    private native void nativeSetMute(
+            boolean value
+    );
 
     private native float[] nativeGetSpectrum();
 
@@ -110,21 +151,42 @@ public class MainActivity extends Activity {
             int length
     );
 
-    private boolean bypass = false;
-    private boolean mute = false;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(
+            Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
 
-        setContentView(R.layout.activity_main);
+        setContentView(
+                R.layout.activity_main
+        );
 
         bindViews();
+
         setupControls();
 
+        if (!nativeLoaded) {
+
+            new AlertDialog.Builder(this)
+                    .setTitle("DTA-C FX")
+                    .setMessage(
+                            "Native audio library tidak dapat dimuat.\n\n" +
+                            "Kemungkinan APK tidak cocok dengan ABI " +
+                            "processor HP."
+                    )
+                    .setPositiveButton(
+                            "OK",
+                            null
+                    )
+                    .show();
+
+            return;
+        }
+
         if (checkSelfPermission(
-                Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
+                Manifest.permission.RECORD_AUDIO
+        ) != PackageManager.PERMISSION_GRANTED) {
 
             requestPermissions(
                     new String[]{
@@ -132,119 +194,233 @@ public class MainActivity extends Activity {
                     },
                     PERMISSION_REQUEST
             );
+
         } else {
+
             startAudio();
         }
     }
 
+
     private void bindViews() {
 
-        micButton = findViewById(R.id.btnMic);
-        playerButton = findViewById(R.id.btnPlayer);
+        micButton =
+                findViewById(
+                        R.id.btnMic
+                );
 
-        bypassButton = findViewById(R.id.btnBypass);
-        muteButton = findViewById(R.id.btnMute);
+        playerButton =
+                findViewById(
+                        R.id.btnPlayer
+                );
 
-        delaySeek = findViewById(R.id.seekDelay);
-        echoSeek = findViewById(R.id.seekEcho);
-        chorusSeek = findViewById(R.id.seekChorus);
-        reverbSeek = findViewById(R.id.seekReverb);
+        bypassButton =
+                findViewById(
+                        R.id.btnBypass
+                );
 
-        delayValue = findViewById(R.id.txtDelayValue);
-        echoValue = findViewById(R.id.txtEchoValue);
-        chorusValue = findViewById(R.id.txtChorusValue);
-        reverbValue = findViewById(R.id.txtReverbValue);
+        muteButton =
+                findViewById(
+                        R.id.btnMute
+                );
 
-        sourceText = findViewById(R.id.txtSource);
+        delaySeek =
+                findViewById(
+                        R.id.seekDelay
+                );
 
-        spectrumView = findViewById(R.id.spectrumView);
+        echoSeek =
+                findViewById(
+                        R.id.seekEcho
+                );
+
+        chorusSeek =
+                findViewById(
+                        R.id.seekChorus
+                );
+
+        reverbSeek =
+                findViewById(
+                        R.id.seekReverb
+                );
+
+        delayValue =
+                findViewById(
+                        R.id.txtDelayValue
+                );
+
+        echoValue =
+                findViewById(
+                        R.id.txtEchoValue
+                );
+
+        chorusValue =
+                findViewById(
+                        R.id.txtChorusValue
+                );
+
+        reverbValue =
+                findViewById(
+                        R.id.txtReverbValue
+                );
+
+        sourceText =
+                findViewById(
+                        R.id.txtSource
+                );
+
+        spectrumView =
+                findViewById(
+                        R.id.spectrumView
+                );
     }
+
 
     private void setupControls() {
 
-        micButton.setOnClickListener(v -> {
+        micButton.setOnClickListener(
+                v -> {
 
-            source = 0;
-            sourceText.setText("SOURCE : MIC");
+                    source = 0;
 
-            micButton.setAlpha(1.0f);
-            playerButton.setAlpha(0.55f);
-        });
+                    sourceText.setText(
+                            "SOURCE : MIC"
+                    );
 
-        playerButton.setOnClickListener(v -> {
+                    micButton.setAlpha(
+                            1.0f
+                    );
 
-            Intent intent =
-                    new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    playerButton.setAlpha(
+                            0.55f
+                    );
+                }
+        );
 
-            intent.addCategory(
-                    Intent.CATEGORY_OPENABLE);
 
-            intent.setType("audio/*");
+        playerButton.setOnClickListener(
+                v -> {
 
-            startActivityForResult(
-                    intent,
-                    PLAYER_REQUEST
-            );
-        });
+                    Intent intent =
+                            new Intent(
+                                    Intent.ACTION_OPEN_DOCUMENT
+                            );
+
+                    intent.addCategory(
+                            Intent.CATEGORY_OPENABLE
+                    );
+
+                    intent.setType(
+                            "audio/*"
+                    );
+
+                    startActivityForResult(
+                            intent,
+                            PLAYER_REQUEST
+                    );
+                }
+        );
+
 
         setupSeek(
                 delaySeek,
                 delayValue,
-                this::nativeSetDelay
+                value -> {
+
+                    if (nativeLoaded)
+                        nativeSetDelay(value);
+                }
         );
+
 
         setupSeek(
                 echoSeek,
                 echoValue,
-                this::nativeSetEcho
+                value -> {
+
+                    if (nativeLoaded)
+                        nativeSetEcho(value);
+                }
         );
+
 
         setupSeek(
                 chorusSeek,
                 chorusValue,
-                this::nativeSetChorus
+                value -> {
+
+                    if (nativeLoaded)
+                        nativeSetChorus(value);
+                }
         );
+
 
         setupSeek(
                 reverbSeek,
                 reverbValue,
-                this::nativeSetReverb
+                value -> {
+
+                    if (nativeLoaded)
+                        nativeSetReverb(value);
+                }
         );
 
-        bypassButton.setOnClickListener(v -> {
 
-            bypass = !bypass;
+        bypassButton.setOnClickListener(
+                v -> {
 
-            nativeSetBypass(bypass);
+                    bypass = !bypass;
 
-            bypassButton.setText(
-                    bypass ? "BYPASS ON" : "BYPASS OFF"
-            );
+                    if (nativeLoaded)
+                        nativeSetBypass(
+                                bypass
+                        );
 
-            bypassButton.setAlpha(
-                    bypass ? 1.0f : 0.65f
-            );
-        });
+                    bypassButton.setText(
+                            bypass
+                                    ? "BYPASS ON"
+                                    : "BYPASS OFF"
+                    );
 
-        muteButton.setOnClickListener(v -> {
+                    bypassButton.setAlpha(
+                            bypass
+                                    ? 1.0f
+                                    : 0.65f
+                    );
+                }
+        );
 
-            mute = !mute;
 
-            nativeSetMute(mute);
+        muteButton.setOnClickListener(
+                v -> {
 
-            muteButton.setText(
-                    mute ? "MUTE ON" : "MUTE OFF"
-            );
+                    mute = !mute;
 
-            muteButton.setAlpha(
-                    mute ? 1.0f : 0.65f
-            );
-        });
+                    if (nativeLoaded)
+                        nativeSetMute(
+                                mute
+                        );
+
+                    muteButton.setText(
+                            mute
+                                    ? "MUTE ON"
+                                    : "MUTE OFF"
+                    );
+
+                    muteButton.setAlpha(
+                            mute
+                                    ? 1.0f
+                                    : 0.65f
+                    );
+                }
+        );
     }
+
 
     private interface FXSetter {
         void set(float value);
     }
+
 
     private void setupSeek(
             SeekBar seek,
@@ -272,10 +448,12 @@ public class MainActivity extends Activity {
                         );
                     }
 
+
                     @Override
                     public void onStartTrackingTouch(
                             SeekBar bar) {
                     }
+
 
                     @Override
                     public void onStopTrackingTouch(
@@ -285,9 +463,13 @@ public class MainActivity extends Activity {
         );
     }
 
+
     private void startAudio() {
 
         if (running)
+            return;
+
+        if (!nativeLoaded)
             return;
 
         int minRecord =
@@ -304,50 +486,128 @@ public class MainActivity extends Activity {
                         AudioFormat.ENCODING_PCM_16BIT
                 );
 
-        int recordBuffer =
-                Math.max(minRecord * 2, FRAMES * 2);
+        if (minRecord <= 0 ||
+                minTrack <= 0) {
 
-        int trackBuffer =
-                Math.max(minTrack * 2, FRAMES * 4);
+            showAudioError(
+                    "Audio device tidak mendukung " +
+                    "format 48 kHz."
+            );
 
-        audioRecord =
-                new AudioRecord(
-                        android.media.MediaRecorder.AudioSource.DEFAULT,
-                        SAMPLE_RATE,
-                        AudioFormat.CHANNEL_IN_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        recordBuffer
-                );
-
-        audioTrack =
-                new AudioTrack(
-                        AudioManager.STREAM_MUSIC,
-                        SAMPLE_RATE,
-                        AudioFormat.CHANNEL_OUT_STEREO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        trackBuffer,
-                        AudioTrack.MODE_STREAM
-                );
-
-        if (!nativeInit(SAMPLE_RATE)) {
             return;
         }
 
-        audioRecord.startRecording();
-        audioTrack.play();
 
-        running = true;
-
-        audioThread =
-                new Thread(
-                        this::audioLoop,
-                        "DTA-C-Audio"
+        int recordBuffer =
+                Math.max(
+                        minRecord * 2,
+                        FRAMES * 2
                 );
 
-        audioThread.start();
+        int trackBuffer =
+                Math.max(
+                        minTrack * 2,
+                        FRAMES * 4
+                );
 
-        handler.post(spectrumRunnable);
+
+        try {
+
+            audioRecord =
+                    new AudioRecord(
+                            android.media.MediaRecorder
+                                    .AudioSource.DEFAULT,
+                            SAMPLE_RATE,
+                            AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            recordBuffer
+                    );
+
+
+            audioTrack =
+                    new AudioTrack(
+                            AudioManager.STREAM_MUSIC,
+                            SAMPLE_RATE,
+                            AudioFormat.CHANNEL_OUT_STEREO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            trackBuffer,
+                            AudioTrack.MODE_STREAM
+                    );
+
+
+            if (audioRecord.getState()
+                    != AudioRecord.STATE_INITIALIZED) {
+
+                showAudioError(
+                        "AudioRecord gagal diinisialisasi."
+                );
+
+                releaseAudioObjects();
+
+                return;
+            }
+
+
+            if (audioTrack.getState()
+                    != AudioTrack.STATE_INITIALIZED) {
+
+                showAudioError(
+                        "AudioTrack gagal diinisialisasi."
+                );
+
+                releaseAudioObjects();
+
+                return;
+            }
+
+
+            if (!nativeInit(
+                    SAMPLE_RATE
+            )) {
+
+                showAudioError(
+                        "Native DSP gagal diinisialisasi."
+                );
+
+                releaseAudioObjects();
+
+                return;
+            }
+
+
+            audioRecord.startRecording();
+
+            audioTrack.play();
+
+            running = true;
+
+
+            audioThread =
+                    new Thread(
+                            this::audioLoop,
+                            "DTA-C-Audio"
+                    );
+
+            audioThread.start();
+
+
+            handler.post(
+                    spectrumRunnable
+            );
+
+        } catch (Throwable e) {
+
+            running = false;
+
+            releaseAudioObjects();
+
+            showAudioError(
+                    "Gagal memulai audio:\n" +
+                    e.getClass().getSimpleName()
+            );
+        }
     }
+
 
     private void audioLoop() {
 
@@ -355,79 +615,100 @@ public class MainActivity extends Activity {
                 new short[FRAMES];
 
         short[] stereo =
-                new short[FRAMES * 2];
+                new short[
+                        FRAMES * CHANNELS
+                ];
 
         short[] output =
-                new short[FRAMES * 2];
+                new short[
+                        FRAMES * CHANNELS
+                ];
+
 
         while (running) {
 
-            if (source == 0) {
+            try {
 
-                int read =
-                        audioRecord.read(
-                                mic,
-                                0,
-                                FRAMES
-                        );
+                if (source == 0) {
 
-                if (read <= 0)
-                    continue;
+                    int read =
+                            audioRecord.read(
+                                    mic,
+                                    0,
+                                    FRAMES
+                            );
 
-                for (int i = 0; i < read; i++) {
+                    if (read <= 0)
+                        continue;
 
-                    short s = mic[i];
 
-                    stereo[i * 2] = s;
-                    stereo[i * 2 + 1] = s;
+                    for (int i = 0;
+                         i < read;
+                         i++) {
+
+                        short sample =
+                                mic[i];
+
+                        stereo[i * 2] =
+                                sample;
+
+                        stereo[i * 2 + 1] =
+                                sample;
+                    }
+
+
+                    nativeProcess(
+                            stereo,
+                            output,
+                            read
+                    );
+
+
+                    audioTrack.write(
+                            output,
+                            0,
+                            read * 2
+                    );
+
+                } else {
+
+                    Arrays.fill(
+                            stereo,
+                            (short) 0
+                    );
+
+
+                    nativeProcess(
+                            stereo,
+                            output,
+                            FRAMES
+                    );
+
+
+                    audioTrack.write(
+                            output,
+                            0,
+                            output.length
+                    );
+
+
+                    try {
+
+                        Thread.sleep(3);
+
+                    } catch (
+                            InterruptedException ignored
+                    ) {
+                    }
                 }
 
-                nativeProcess(
-                        stereo,
-                        output,
-                        read
-                );
+            } catch (Throwable e) {
 
-                audioTrack.write(
-                        output,
-                        0,
-                        read * 2
-                );
-
-            } else {
-
-                /*
-                 * PLAYER PCM sudah dikirim ke native
-                 * melalui nativePushPlayerPCM().
-                 *
-                 * Array kosong digunakan sebagai pemicu
-                 * pemrosesan buffer PLAYER.
-                 */
-
-                java.util.Arrays.fill(
-                        stereo,
-                        (short) 0
-                );
-
-                nativeProcess(
-                        stereo,
-                        output,
-                        FRAMES
-                );
-
-                audioTrack.write(
-                        output,
-                        0,
-                        output.length
-                );
-
-                try {
-                    Thread.sleep(3);
-                } catch (InterruptedException ignored) {
-                }
+                running = false;
             }
         }
     }
+
 
     @Override
     protected void onActivityResult(
@@ -441,16 +722,22 @@ public class MainActivity extends Activity {
                 data
         );
 
+
         if (requestCode != PLAYER_REQUEST)
             return;
 
         if (resultCode != RESULT_OK)
             return;
 
-        if (data == null || data.getData() == null)
+        if (data == null)
             return;
 
-        Uri uri = data.getData();
+        Uri uri =
+                data.getData();
+
+        if (uri == null)
+            return;
+
 
         source = 1;
 
@@ -458,8 +745,14 @@ public class MainActivity extends Activity {
                 "SOURCE : PLAYER"
         );
 
-        micButton.setAlpha(0.55f);
-        playerButton.setAlpha(1.0f);
+        micButton.setAlpha(
+                0.55f
+        );
+
+        playerButton.setAlpha(
+                1.0f
+        );
+
 
         new Thread(
                 () -> decodePlayer(uri),
@@ -467,12 +760,15 @@ public class MainActivity extends Activity {
         ).start();
     }
 
-    private void decodePlayer(Uri uri) {
+
+    private void decodePlayer(
+            Uri uri) {
 
         MediaExtractor extractor =
                 new MediaExtractor();
 
         MediaCodec codec = null;
+
 
         try {
 
@@ -482,7 +778,9 @@ public class MainActivity extends Activity {
                     null
             );
 
+
             int trackIndex = -1;
+
 
             for (int i = 0;
                  i < extractor.getTrackCount();
@@ -497,46 +795,62 @@ public class MainActivity extends Activity {
                         );
 
                 if (mime != null &&
-                        mime.startsWith("audio/")) {
+                        mime.startsWith(
+                                "audio/"
+                        )) {
 
                     trackIndex = i;
                     break;
                 }
             }
 
+
             if (trackIndex < 0)
                 return;
 
-            extractor.selectTrack(trackIndex);
+
+            extractor.selectTrack(
+                    trackIndex
+            );
+
 
             MediaFormat format =
                     extractor.getTrackFormat(
                             trackIndex
                     );
 
+
             String mime =
                     format.getString(
                             MediaFormat.KEY_MIME
                     );
 
+
             int inputRate =
                     format.containsKey(
-                            MediaFormat.KEY_SAMPLE_RATE)
+                            MediaFormat.KEY_SAMPLE_RATE
+                    )
                             ? format.getInteger(
-                            MediaFormat.KEY_SAMPLE_RATE)
+                            MediaFormat.KEY_SAMPLE_RATE
+                    )
                             : SAMPLE_RATE;
+
 
             int inputChannels =
                     format.containsKey(
-                            MediaFormat.KEY_CHANNEL_COUNT)
+                            MediaFormat.KEY_CHANNEL_COUNT
+                    )
                             ? format.getInteger(
-                            MediaFormat.KEY_CHANNEL_COUNT)
+                            MediaFormat.KEY_CHANNEL_COUNT
+                    )
                             : 2;
+
 
             codec =
                     MediaCodec.createDecoderByType(
                             mime
                     );
+
 
             codec.configure(
                     format,
@@ -545,15 +859,20 @@ public class MainActivity extends Activity {
                     0
             );
 
+
             codec.start();
+
 
             MediaCodec.BufferInfo info =
                     new MediaCodec.BufferInfo();
 
+
             boolean inputDone = false;
             boolean outputDone = false;
 
-            while (!outputDone && running) {
+
+            while (!outputDone &&
+                    running) {
 
                 if (!inputDone) {
 
@@ -562,6 +881,7 @@ public class MainActivity extends Activity {
                                     10000
                             );
 
+
                     if (inputIndex >= 0) {
 
                         ByteBuffer inputBuffer =
@@ -569,14 +889,17 @@ public class MainActivity extends Activity {
                                         inputIndex
                                 );
 
+
                         if (inputBuffer == null)
                             continue;
+
 
                         int sampleSize =
                                 extractor.readSampleData(
                                         inputBuffer,
                                         0
                                 );
+
 
                         if (sampleSize < 0) {
 
@@ -585,7 +908,8 @@ public class MainActivity extends Activity {
                                     0,
                                     0,
                                     0,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                    MediaCodec
+                                            .BUFFER_FLAG_END_OF_STREAM
                             );
 
                             inputDone = true;
@@ -593,7 +917,9 @@ public class MainActivity extends Activity {
                         } else {
 
                             long pts =
-                                    extractor.getSampleTime();
+                                    extractor
+                                            .getSampleTime();
+
 
                             codec.queueInputBuffer(
                                     inputIndex,
@@ -603,10 +929,12 @@ public class MainActivity extends Activity {
                                     0
                             );
 
+
                             extractor.advance();
                         }
                     }
                 }
+
 
                 int outputIndex =
                         codec.dequeueOutputBuffer(
@@ -614,12 +942,14 @@ public class MainActivity extends Activity {
                                 10000
                         );
 
+
                 if (outputIndex >= 0) {
 
                     ByteBuffer buffer =
                             codec.getOutputBuffer(
                                     outputIndex
                             );
+
 
                     if (buffer != null &&
                             info.size > 0) {
@@ -633,20 +963,28 @@ public class MainActivity extends Activity {
                                         info.size
                         );
 
+
                         ByteBuffer copy =
                                 buffer.slice()
                                         .order(
-                                                ByteOrder.LITTLE_ENDIAN
+                                                ByteOrder
+                                                        .LITTLE_ENDIAN
                                         );
+
 
                         int samples =
                                 info.size / 2;
 
+
                         short[] pcm =
-                                new short[samples];
+                                new short[
+                                        samples
+                                ];
+
 
                         copy.asShortBuffer()
                                 .get(pcm);
+
 
                         short[] stereo =
                                 convertTo48kStereo(
@@ -654,6 +992,7 @@ public class MainActivity extends Activity {
                                         inputChannels,
                                         inputRate
                                 );
+
 
                         if (stereo.length > 0) {
 
@@ -664,13 +1003,16 @@ public class MainActivity extends Activity {
                         }
                     }
 
+
                     codec.releaseOutputBuffer(
                             outputIndex,
                             false
                     );
 
+
                     if ((info.flags &
-                            MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            MediaCodec
+                                    .BUFFER_FLAG_END_OF_STREAM)
                             != 0) {
 
                         outputDone = true;
@@ -678,41 +1020,58 @@ public class MainActivity extends Activity {
                 }
             }
 
-        } catch (Exception e) {
-
-            e.printStackTrace();
+        } catch (Throwable ignored) {
 
         } finally {
 
             try {
+
                 if (codec != null) {
                     codec.stop();
                     codec.release();
                 }
-            } catch (Exception ignored) {
+
+            } catch (Throwable ignored) {
             }
 
+
             try {
+
                 extractor.release();
-            } catch (Exception ignored) {
+
+            } catch (Throwable ignored) {
             }
         }
     }
+
 
     private short[] convertTo48kStereo(
             short[] input,
             int channels,
             int inputRate) {
 
-        if (input.length == 0)
+        if (input == null ||
+                input.length == 0) {
+
             return new short[0];
+        }
+
+
+        if (inputRate <= 0)
+            inputRate = SAMPLE_RATE;
+
+
+        if (channels <= 0)
+            channels = 1;
+
 
         int inFrames =
-                input.length /
-                        Math.max(channels, 1);
+                input.length / channels;
+
 
         if (inFrames <= 0)
             return new short[0];
+
 
         int outFrames =
                 (int) Math.ceil(
@@ -721,24 +1080,34 @@ public class MainActivity extends Activity {
                                         (double) inputRate)
                 );
 
-        short[] output =
-                new short[outFrames * 2];
 
-        for (int i = 0; i < outFrames; i++) {
+        short[] output =
+                new short[
+                        outFrames * 2
+                ];
+
+
+        for (int i = 0;
+             i < outFrames;
+             i++) {
 
             double src =
                     i *
                             (inputRate /
                                     (double) SAMPLE_RATE);
 
+
             int p =
                     (int) src;
+
 
             double frac =
                     src - p;
 
+
             if (p >= inFrames)
                 p = inFrames - 1;
+
 
             int p2 =
                     Math.min(
@@ -746,10 +1115,12 @@ public class MainActivity extends Activity {
                             inFrames - 1
                     );
 
+
             float left1;
             float right1;
             float left2;
             float right2;
+
 
             if (channels == 1) {
 
@@ -767,31 +1138,49 @@ public class MainActivity extends Activity {
 
             } else {
 
-                int a = p * channels;
-                int b = p2 * channels;
+                int a =
+                        p * channels;
+
+                int b =
+                        p2 * channels;
+
 
                 left1 =
                         input[a];
 
                 right1 =
-                        input[a + 1];
+                        input[
+                                Math.min(
+                                        a + 1,
+                                        input.length - 1
+                                )
+                        ];
+
 
                 left2 =
                         input[b];
 
                 right2 =
-                        input[b + 1];
+                        input[
+                                Math.min(
+                                        b + 1,
+                                        input.length - 1
+                                )
+                        ];
             }
+
 
             float left =
                     left1 +
                             (left2 - left1) *
                                     (float) frac;
 
+
             float right =
                     right1 +
                             (right2 - right1) *
                                     (float) frac;
+
 
             output[i * 2] =
                     (short) left;
@@ -800,8 +1189,56 @@ public class MainActivity extends Activity {
                     (short) right;
         }
 
+
         return output;
     }
+
+
+    private void showAudioError(
+            String message) {
+
+        if (isFinishing())
+            return;
+
+        runOnUiThread(
+                () -> new AlertDialog.Builder(
+                        MainActivity.this
+                )
+                        .setTitle("DTA-C FX")
+                        .setMessage(message)
+                        .setPositiveButton(
+                                "OK",
+                                null
+                        )
+                        .show()
+        );
+    }
+
+
+    private void releaseAudioObjects() {
+
+        try {
+
+            if (audioRecord != null) {
+                audioRecord.release();
+                audioRecord = null;
+            }
+
+        } catch (Throwable ignored) {
+        }
+
+
+        try {
+
+            if (audioTrack != null) {
+                audioTrack.release();
+                audioTrack = null;
+            }
+
+        } catch (Throwable ignored) {
+        }
+    }
+
 
     @Override
     protected void onDestroy() {
@@ -812,30 +1249,48 @@ public class MainActivity extends Activity {
                 spectrumRunnable
         );
 
+
         try {
+
             if (audioRecord != null) {
                 audioRecord.stop();
                 audioRecord.release();
+                audioRecord = null;
             }
-        } catch (Exception ignored) {
+
+        } catch (Throwable ignored) {
         }
 
+
         try {
+
             if (audioTrack != null) {
                 audioTrack.stop();
                 audioTrack.release();
+                audioTrack = null;
             }
-        } catch (Exception ignored) {
+
+        } catch (Throwable ignored) {
         }
 
-        nativeRelease();
+
+        if (nativeLoaded) {
+
+            try {
+                nativeRelease();
+            } catch (Throwable ignored) {
+            }
+        }
+
 
         super.onDestroy();
     }
 
+
     /*
-     * Spectrum Analyzer sederhana 32 band.
-     * Tidak membutuhkan file Java tambahan.
+     * =====================================================
+     * SPECTRUM ANALYZER
+     * =====================================================
      */
 
     public static class SpectrumView
@@ -846,41 +1301,51 @@ public class MainActivity extends Activity {
                         android.graphics.Paint.ANTI_ALIAS_FLAG
                 );
 
-        private float[] values =
+        private final float[] values =
                 new float[32];
+
 
         public SpectrumView(
                 android.content.Context context) {
 
             super(context);
 
-            paint.setStrokeWidth(8);
+            paint.setStrokeWidth(
+                    7.0f
+            );
+
             paint.setStrokeCap(
                     android.graphics.Paint.Cap.ROUND
             );
         }
 
-        public void setSpectrum(float[] data) {
+
+        public void setSpectrum(
+                float[] data) {
 
             if (data == null)
                 return;
 
-            int n =
+
+            int count =
                     Math.min(
                             data.length,
                             values.length
                     );
+
 
             System.arraycopy(
                     data,
                     0,
                     values,
                     0,
-                    n
+                    count
             );
+
 
             postInvalidate();
         }
+
 
         @Override
         protected void onDraw(
@@ -888,40 +1353,74 @@ public class MainActivity extends Activity {
 
             super.onDraw(canvas);
 
-            float width = getWidth();
-            float height = getHeight();
 
-            float gap = width / 32.0f;
+            float width =
+                    getWidth();
 
-            for (int i = 0; i < 32; i++) {
+            float height =
+                    getHeight();
 
-                float value =
+
+            canvas.drawColor(
+                    android.graphics.Color.rgb(
+                            8,
+                            10,
+                            13
+                    )
+            );
+
+
+            paint.setColor(
+                    android.graphics.Color.rgb(
+                            0,
+                            220,
+                            255
+                    )
+            );
+
+
+            float spacing =
+                    width / 32.0f;
+
+
+            paint.setStrokeWidth(
+                    Math.max(
+                            3.0f,
+                            spacing * 0.55f
+                    )
+            );
+
+
+            for (int i = 0;
+                 i < 32;
+                 i++) {
+
+                float level =
+                        values[i] * 5.0f;
+
+
+                level =
                         Math.max(
                                 0.02f,
                                 Math.min(
                                         1.0f,
-                                        values[i] * 5.0f
+                                        level
                                 )
                         );
 
+
                 float x =
-                        gap * i +
-                                gap * 0.5f;
+                        spacing * i +
+                                spacing * 0.5f;
+
 
                 float barHeight =
-                        value * height;
+                        level * height;
 
-                paint.setColor(
-                        android.graphics.Color.rgb(
-                                0,
-                                220,
-                                255
-                        )
-                );
 
                 canvas.drawLine(
                         x,
-                        height,
+                        height - 4,
                         x,
                         height - barHeight,
                         paint
